@@ -10,13 +10,6 @@ defmodule Ola.Dictionary do
   end
 
   @doc """
-  Show the whole probability table (mostly for testing)
-  """
-  def all do
-    GenServer.call(__MODULE__, {:all})
-  end
-
-  @doc """
   Flush the existing training/probability map
   """
   def flush do
@@ -31,10 +24,24 @@ defmodule Ola.Dictionary do
   end
 
   @doc """
+  Show all available dictionary keys
+  """
+  def keys do
+    GenServer.call(__MODULE__, {:keys})
+  end
+
+  @doc """
   Lookup the current set of `value` probabilities for a given `key`
   """
   def lookup(key) do
     GenServer.call(__MODULE__, {:lookup, key})
+  end
+
+  @doc """
+  Show the whole probability table (mostly for testing)
+  """
+  def map do
+    GenServer.call(__MODULE__, {:map})
   end
 
   @doc """
@@ -55,83 +62,77 @@ defmodule Ola.Dictionary do
 
   @impl true
   def init(_opts) do
-    {:ok, %{map: %{}}}
+    {:ok, %{map: %{}, keys: %{}}}
   end
 
 	@impl true
-  def handle_call({:all}, _from, %{map: map} = state) do
+	def handle_call({:keys}, _from, %{keys: keys} = state) do
+    {:reply, keys, state}
+	end
+
+	def handle_call({:lookup, key}, _from, %{map: map} = state) do
+    probability_map = Map.get(map, key, %{})
+
+    {:reply, probability_map, state}
+	end
+
+  def handle_call({:map}, _from, %{map: map} = state) do
     {:reply, map, state}
   end
 
-	def handle_call({:lookup, key}, _from, %{map: map} = state) do
-    value_map = Map.get(map, key, %{})
-
-    {:reply, value_map, state}
-	end
-
 	def handle_call({:probable_next_key, key}, _from, %{map: map} = state) do
-    next_key = handle_probable_next_key(map, key)
+    next_key = 
+      with {:ok, value_map} <- Map.fetch(map, key),
+           {cumulative_sums, total_prob} = Enum.map_reduce(value_map, 0, fn {_key, prob}, sum -> {prob + sum, prob + sum} end),
+           random_prob = Enum.random(1..total_prob),
+           {_sum, key_index} = Enum.find(Enum.with_index(cumulative_sums), fn {sum, _index} -> sum >= random_prob end),
+           {key, _prob} = Enum.at(value_map, key_index) do
+        key
+    else
+      _ -> ""
+    end
 
     {:reply, next_key, state}
 	end
 
-	def handle_call({:random_key, length}, _from, %{map: map} = state) do
-    key = try do
-      {k, _} =
-        map
-        |> Enum.filter(fn {k,_} -> String.length(k) == length end)
-        |> Enum.random()
-      k
-    rescue
-      _e in Enum.EmptyError ->
-        {k, _} = Enum.random(map)
-        k
-    end
+	def handle_call({:random_key, length}, _from, %{keys: keys} = state) do
+    key = diminishing_random_key(keys, length)
 
     {:reply, key, state}
 	end
 
   @impl true
   def handle_cast({:flush}, state) do
-    {:noreply, %{state | map: %{}}}
+    {:noreply, %{state | map: %{}, keys: %{}}}
   end
 
-	def handle_cast({:increment, key, value, amount}, %{map: map} = state) do
+	def handle_cast({:increment, key, value, amount}, %{map: map, keys: keys} = state) do
     value_map = Map.get(map, key, %{})
     value_probability = Map.get(value_map, value, 0) + amount 
-
     value_map = Map.put(value_map, value, value_probability)
     map = Map.put(map, key, value_map)
 
-    {:noreply, %{state | map: map}}
+    key_length = String.length(key)
+    keys = case Map.fetch(keys, key_length) do
+      :error -> 
+        Map.put(keys, key_length, MapSet.new([key]))
+      {:ok, mapset} ->
+        Map.put(keys, key_length, MapSet.put(mapset, key))
+    end
+
+    {:noreply, %{state | map: map, keys: keys}}
 	end
 
-  defp handle_probable_next_key(map, key) do
-    with {:ok, value_map} <- Map.fetch(map, key) do
-      total_prob = Enum.reduce(value_map, 0, fn {_key, prob}, acc -> prob + acc end)
-      random_index = Enum.random(0..total_prob - 1)
-
-      {_, next_key} = Enum.reduce(value_map, {0, nil}, fn {key, prob}, {sum, int_key} ->
-        case int_key do
-          nil ->
-            if prob + sum < random_index do
-              {prob + sum, nil}
-            else
-              {sum, key}
-            end
-          _ ->
-            {sum, int_key}
+  defp diminishing_random_key(keys, length) do
+    case Map.fetch(keys, length) do
+      :error ->
+        if length == 1 do
+          ""
+        else
+          diminishing_random_key(keys, length - 1)
         end
-      end)
-
-      next_key
-    else
-      _ ->
-        {key, _} = 
-          map
-          |> Enum.shuffle()
-          |> Enum.find(fn {k,_v} -> String.length(k) == 1 end)
-        key
+      {:ok, matching_keys} ->
+        Enum.random(matching_keys)
     end
   end
 end

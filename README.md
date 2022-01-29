@@ -1,6 +1,6 @@
 # Ola
 
-**TODO: Add description**
+Makes fake words that sound like real words!
 
 ## Installation
 
