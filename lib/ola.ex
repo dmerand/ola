@@ -19,6 +19,16 @@ defmodule Ola do
     length = Keyword.get(opts, :length, Enum.random(3..16))
     n_grams = Keyword.get(opts, :n_grams, 1)
 
+    max_n_grams = Enum.max_by(Dictionary.all(), fn {k, _v} ->
+      String.length(k)
+    end)
+
+    n_grams = if n_grams > max_n_grams do
+      max_n_grams
+    else
+      n_grams
+    end
+
     Enum.reduce(0..length - n_grams - 1, Dictionary.random_key(n_grams), fn _i, word ->
       window = String.slice(word, (String.length(word) - n_grams)..-1)
       next_key = Dictionary.probable_next_key(window)

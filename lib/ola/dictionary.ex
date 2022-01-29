@@ -76,7 +76,19 @@ defmodule Ola.Dictionary do
 	end
 
 	def handle_call({:random_key, length}, _from, %{map: map} = state) do
-    {:reply, random_key_specific_length(map, length), state}
+    key = try do
+      {k, _} =
+        map
+        |> Enum.filter(fn {k,_} -> String.length(k) == length end)
+        |> Enum.random()
+      k
+    rescue
+      _e in Enum.EmptyError ->
+        {k, _} = Enum.random(map)
+        k
+    end
+
+    {:reply, key, state}
 	end
 
   @impl true
@@ -115,17 +127,11 @@ defmodule Ola.Dictionary do
       next_key
     else
       _ ->
-        # no key of that size found, go down one size
-        handle_probable_next_key(map, String.slice(key, 0..-2))
-    end
-  end
-
-  defp random_key_specific_length(map, length, existing_key \\ nil) do
-    if existing_key == nil || String.length(existing_key) != length do
-      {key, _} = Enum.random(map)
-      random_key_specific_length(map, length, key)
-    else
-      existing_key
+        {key, _} = 
+          map
+          |> Enum.shuffle()
+          |> Enum.find(fn {k,_v} -> String.length(k) == 1 end)
+        key
     end
   end
 end
