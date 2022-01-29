@@ -17,10 +17,17 @@ defmodule Ola.Dictionary do
   end
 
   @doc """
+  Flush the existing training/probability map
+  """
+  def flush do
+    GenServer.cast(__MODULE__, {:flush})
+  end
+
+  @doc """
   Increment a probability `value` for a given `key`
   """
   def increment(key, value, amount \\ 1) do
-    GenServer.call(__MODULE__, {:increment, key, value, amount})
+    GenServer.cast(__MODULE__, {:increment, key, value, amount})
   end
 
   @doc """
@@ -40,8 +47,8 @@ defmodule Ola.Dictionary do
   @doc """
   Returns a random key from the map
   """
-  def random_key() do
-    GenServer.call(__MODULE__, {:random_key})
+  def random_key(length \\ 1) do
+    GenServer.call(__MODULE__, {:random_key, length})
   end
 
   ## Server callbacks
@@ -56,16 +63,6 @@ defmodule Ola.Dictionary do
     {:reply, map, state}
   end
 
-	def handle_call({:increment, key, value, amount}, _from, %{map: map} = state) do
-    value_map = Map.get(map, key, %{})
-    value_probability = Map.get(value_map, value, 0) + amount 
-
-    value_map = Map.put(value_map, value, value_probability)
-    map = Map.put(map, key, value_map)
-
-    {:reply, map, %{state | map: map}}
-	end
-
 	def handle_call({:lookup, key}, _from, %{map: map} = state) do
     value_map = Map.get(map, key, %{})
 
@@ -73,13 +70,39 @@ defmodule Ola.Dictionary do
 	end
 
 	def handle_call({:probable_next_key, key}, _from, %{map: map} = state) do
+    next_key = handle_probable_next_key(map, key)
+
+    {:reply, next_key, state}
+	end
+
+	def handle_call({:random_key, length}, _from, %{map: map} = state) do
+    {:reply, random_key_specific_length(map, length), state}
+	end
+
+  @impl true
+  def handle_cast({:flush}, state) do
+    {:noreply, %{state | map: %{}}}
+  end
+
+	def handle_cast({:increment, key, value, amount}, %{map: map} = state) do
+    value_map = Map.get(map, key, %{})
+    value_probability = Map.get(value_map, value, 0) + amount 
+
+    value_map = Map.put(value_map, value, value_probability)
+    map = Map.put(map, key, value_map)
+
+    {:noreply, %{state | map: map}}
+	end
+
+  defp handle_probable_next_key(map, key) do
     with {:ok, value_map} <- Map.fetch(map, key) do
       total_prob = Enum.reduce(value_map, 0, fn {_key, prob}, acc -> prob + acc end)
-      index = Enum.random(0..total_prob - 1)
+      random_index = Enum.random(0..total_prob - 1)
+
       {_, next_key} = Enum.reduce(value_map, {0, nil}, fn {key, prob}, {sum, int_key} ->
         case int_key do
           nil ->
-            if prob + sum < index do
+            if prob + sum < random_index do
               {prob + sum, nil}
             else
               {sum, key}
@@ -89,16 +112,20 @@ defmodule Ola.Dictionary do
         end
       end)
 
-      {:reply, next_key, state}
+      next_key
     else
       _ ->
-        {:reply, nil, state}
+        # no key of that size found, go down one size
+        handle_probable_next_key(map, String.slice(key, 0..-2))
     end
-	end
+  end
 
-	def handle_call({:random_key}, _from, %{map: map} = state) do
-    {key, _} = Enum.random(map)
-
-    {:reply, key, state}
-	end
+  defp random_key_specific_length(map, length, existing_key \\ nil) do
+    if existing_key == nil || String.length(existing_key) != length do
+      {key, _} = Enum.random(map)
+      random_key_specific_length(map, length, key)
+    else
+      existing_key
+    end
+  end
 end

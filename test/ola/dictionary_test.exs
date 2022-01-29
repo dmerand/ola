@@ -41,5 +41,8 @@ defmodule Ola.DictionaryTest do
   test "random key" do
     Dictionary.increment("a", "a")
     assert Dictionary.random_key()
+
+    Dictionary.increment("aaa", "a")
+    assert Dictionary.random_key(3)
   end
 end
