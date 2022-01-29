@@ -66,9 +66,7 @@ defmodule Ola do
     n_grams = set_max(Keyword.get(opts, :n_grams, 1))
 
     Enum.reduce(0..length - n_grams - 1, Dictionary.random_key(n_grams), fn _i, word ->
-      window = narrowing_window(word, n_grams)
-      next_key = Dictionary.probable_next_key(window)
-
+      next_key = narrowing_window(word, n_grams)
       word <> next_key
     end)
   end
